@@ -1,16 +1,19 @@
 from flask import Flask, request
 import requests
+import datetime
 
 app = Flask(__name__)
 
-# =========================
-# META VERIFY TOKEN
-# =========================
 VERIFY_TOKEN = "xTE0hXgE"
 
+# =========================
+# SIMPLE MEMORY STORAGE (replace with DB later)
+# =========================
+CONVERSATIONS = {}
+
 
 # =========================
-# VERIFY WEBHOOK (GET)
+# VERIFY WEBHOOK
 # =========================
 @app.route('/webhook', methods=['GET'])
 def verify():
@@ -25,7 +28,7 @@ def verify():
 
 
 # =========================
-# RECEIVE MESSAGES (POST)
+# RECEIVE MESSAGES
 # =========================
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -33,28 +36,16 @@ def webhook():
     print("Incoming:", data)
 
     try:
-        entry = data.get("entry", [])
-
-        for e in entry:
-            changes = e.get("changes", [])
-
-            for change in changes:
+        for entry in data.get("entry", []):
+            for change in entry.get("changes", []):
                 value = change.get("value", {})
 
-                # =========================
-                # ONLY REAL USER MESSAGES
-                # =========================
                 if "messages" not in value:
-                    print("Skipped non-message event")
+                    print("Skipping non-message event")
                     continue
 
-                messages = value["messages"]
-
-                for message in messages:
-                    msg_type = message.get("type")
-
-                    # only text messages
-                    if msg_type != "text":
+                for message in value["messages"]:
+                    if message.get("type") != "text":
                         continue
 
                     sender = message.get("from")
@@ -62,7 +53,7 @@ def webhook():
 
                     print(f"{sender}: {text}")
 
-                    send_to_odoo(sender, text)
+                    process_message(sender, text)
 
     except Exception as e:
         print("Webhook Error:", e)
@@ -71,71 +62,59 @@ def webhook():
 
 
 # =========================
-# SEND TO ODOO CRM
+# CRM LOGIC ENGINE
 # =========================
-def send_to_odoo(phone, message):
+def process_message(phone, text):
+    time_now = datetime.datetime.now().isoformat()
+
+    # -------------------------
+    # STORE CONVERSATION
+    # -------------------------
+    if phone not in CONVERSATIONS:
+        CONVERSATIONS[phone] = []
+
+    CONVERSATIONS[phone].append({
+        "message": text,
+        "time": time_now
+    })
+
+    print("Stored conversation:", CONVERSATIONS[phone])
+
+    # -------------------------
+    # LEAD TRIGGER LOGIC
+    # -------------------------
+    trigger_words = ["price", "cost", "interested", "buy", "service"]
+
+    if any(word in text.lower() for word in trigger_words):
+        create_lead(phone, text)
+
+
+# =========================
+# CREATE LEAD (SAFE VERSION)
+# =========================
+def create_lead(phone, message):
+    print("🚀 Creating lead for:", phone)
+
+    # OPTION 1: send to Odoo endpoint (BEST PRACTICE)
+    # OPTION 2: send email / CRM API / database
+
+    url = "https://erpbox-sols-finnettrust.odoo.com/mail/create"
+
+    payload = {
+        "phone": phone,
+        "message": message
+    }
+
     try:
-        url = "https://erpbox-sols-finnettrust.odoo.com/jsonrpc"
-
-        db = "erpbox-sols-finnettrust"
-        username = "YOUR_ODOO_EMAIL"
-        password = "YOUR_ODOO_PASSWORD_OR_API_KEY"
-
-        headers = {"Content-Type": "application/json"}
-
-        # -------------------------
-        # LOGIN
-        # -------------------------
-        auth_payload = {
-            "jsonrpc": "2.0",
-            "method": "call",
-            "params": {
-                "service": "common",
-                "method": "login",
-                "args": [db, username, password]
-            },
-            "id": 1
-        }
-
-        res = requests.post(url, json=auth_payload, headers=headers)
-        result = res.json().get("result")
-
-        if not result:
-            print("❌ Odoo login failed:", res.json())
-            return
-
-        uid = result
-
-        # -------------------------
-        # CREATE CRM LEAD
-        # -------------------------
-        lead_payload = {
-            "jsonrpc": "2.0",
-            "method": "call",
-            "params": {
-                "service": "object",
-                "method": "execute_kw",
-                "args": [
-                    db, uid, password,
-                    "crm.lead", "create",
-                    [{
-                        "name": f"WhatsApp: {phone}",
-                        "description": message
-                    }]
-                ]
-            },
-            "id": 2
-        }
-
-        create_res = requests.post(url, json=lead_payload, headers=headers)
-        print("Odoo Response:", create_res.json())
+        res = requests.post(url, json=payload)
+        print("CRM Response:", res.text)
 
     except Exception as e:
-        print("Odoo Error:", e)
+        print("CRM Error:", e)
 
 
 # =========================
 # RUN APP
 # =========================
 if __name__ == "__main__":
-    app.run()
+    app.run(host="0.0.0.0", port=5000)
