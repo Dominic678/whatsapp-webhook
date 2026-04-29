@@ -7,8 +7,13 @@ VERIFY_TOKEN = "xTE0hXgE"
 
 @app.route('/webhook', methods=['GET'])
 def verify():
-    if request.args.get("hub.verify_token") == VERIFY_TOKEN:
-        return request.args.get("hub.challenge"), 200
+    mode = request.args.get("hub.mode")
+    token = request.args.get("hub.verify_token")
+    challenge = request.args.get("hub.challenge")
+
+    if mode == "subscribe" and token == VERIFY_TOKEN:
+        return challenge, 200
+
     return "Invalid token", 403
 
 
