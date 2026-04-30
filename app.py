@@ -1,1 +1,85 @@
-flask import Flask, request import requests import datetime app = Flask(__name__) VERIFY_TOKEN = "xTE0hXgE" # ========================= # SIMPLE MEMORY STORAGE (replace with DB later) # ========================= CONVERSATIONS = {} # ========================= # VERIFY WEBHOOK # ========================= @app.route('/webhook', methods=['GET']) def verify(): mode = request.args.get("hub.mode") token = request.args.get("hub.verify_token") challenge = request.args.get("hub.challenge") if mode == "subscribe" and token == VERIFY_TOKEN: return challenge, 200 return "Invalid token", 403 # ========================= # RECEIVE MESSAGES # ========================= @app.route('/webhook', methods=['POST']) def webhook(): data = request.get_json() print("Incoming:", data) try: for entry in data.get("entry", []): for change in entry.get("changes", []): value = change.get("value", {}) if "messages" not in value: print("Skipping non-message event") continue for message in value["messages"]: if message.get("type") != "text": continue sender = message.get("from") text = message.get("text", {}).get("body") print(f"{sender}: {text}") process_message(sender, text) except Exception as e: print("Webhook Error:", e) return "OK", 200 # ========================= # CRM LOGIC ENGINE # ========================= def process_message(phone, text): time_now = datetime.datetime.now().isoformat() # ------------------------- # STORE CONVERSATION # ------------------------- if phone not in CONVERSATIONS: CONVERSATIONS[phone] = [] CONVERSATIONS[phone].append({ "message": text, "time": time_now }) print("Stored conversation:", CONVERSATIONS[phone]) # ------------------------- # LEAD TRIGGER LOGIC # ------------------------- trigger_words = ["price", "cost", "interested", "buy", "service"] if any(word in text.lower() for word in trigger_words): create_lead(phone, text) # ========================= # CREATE LEAD (SAFE VERSION) # ========================= def create_lead(phone, message): print("🚀 Creating lead for:", phone) # OPTION 1: send to Odoo endpoint (BEST PRACTICE) # OPTION 2: send email / CRM API / database url = "https://erpbox-sols-finnettrust.odoo.com/mail/create" payload = { "phone": phone, "message": message } try: res = requests.post(url, json=payload) print("CRM Response:", res.text) except Exception as e: print("CRM Error:", e) # ========================= # RUN APP # ========================= if __name__ == "__main__": app.run(host="0.0.0.0", port=5000) remember the webhook
+from flask import Flask, request
+import requests
+
+app = Flask(__name__)
+
+VERIFY_TOKEN = "xTE0hXgE"
+
+@app.route('/webhook', methods=['GET'])
+def verify():
+    mode = request.args.get("hub.mode")
+    token = request.args.get("hub.verify_token")
+    challenge = request.args.get("hub.challenge")
+
+    if mode == "subscribe" and token == VERIFY_TOKEN:
+        return challenge, 200
+
+    return "Invalid token", 403
+
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    data = request.get_json()
+    print("Incoming:", data)
+
+    try:
+        message = data['entry'][0]['changes'][0]['value']['messages'][0]
+        sender = message['from']
+        text = message['text']['body']
+
+        print(f"{sender}: {text}")
+
+        send_to_odoo(sender, text)
+
+    except Exception as e:
+        print("Error:", e)
+
+    return "OK", 200
+
+
+def send_to_odoo(phone, message):
+    url = "https://erpbox-sols-finnettrust.odoo.com/jsonrpc"
+
+    db = "erpbox-sols-finnettrust"
+    username = "YOUR_ODOO_EMAIL"
+    password = "YOUR_ODOO_PASSWORD"  # or API key
+
+    headers = {'Content-Type': 'application/json'}
+
+    auth = {
+        "jsonrpc": "2.0",
+        "method": "call",
+        "params": {
+            "service": "common",
+            "method": "login",
+            "args": [db, username, password]
+        },
+        "id": 1
+    }
+
+    res = requests.post(url, json=auth, headers=headers)
+    uid = res.json()['result']
+
+    payload = {
+        "jsonrpc": "2.0",
+        "method": "call",
+        "params": {
+            "service": "object",
+            "method": "execute_kw",
+            "args": [
+                db, uid, password,
+                "crm.lead", "create",
+                [{
+                    "name": f"WhatsApp: {phone}",
+                    "description": message
+                }]
+            ]
+        },
+        "id": 2
+    }
+
+    requests.post(url, json=payload, headers=headers)
+
+
+if __name__ == "__main__":
+    app.run()rewrite all for me correctly 
