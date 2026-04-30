@@ -7,13 +7,20 @@ app = Flask(__name__)
 VERIFY_TOKEN = "xTE0hXgE"
 
 # =========================
-# SIMPLE MEMORY STORAGE (replace with DB later)
+# SIMPLE MEMORY STORAGE
 # =========================
 CONVERSATIONS = {}
 
+# =========================
+# HOME ROUTE (Render health check)
+# =========================
+@app.route('/')
+def home():
+    return "Webhook is LIVE", 200
+
 
 # =========================
-# VERIFY WEBHOOK
+# VERIFY WEBHOOK (GET)
 # =========================
 @app.route('/webhook', methods=['GET'])
 def verify():
@@ -25,17 +32,16 @@ def verify():
         return challenge, 200
 
     return "Invalid token", 403
-@app.route('/')
-def home():
-    return "Webhook is LIVE", 200
+
 
 # =========================
-# RECEIVE MESSAGES
+# RECEIVE MESSAGES (POST)
 # =========================
 @app.route('/webhook', methods=['POST'])
 def webhook():
     data = request.get_json()
-    print("Incoming:", data)
+
+    print("📩 Incoming Webhook:", data)
 
     try:
         for entry in data.get("entry", []):
@@ -43,7 +49,7 @@ def webhook():
                 value = change.get("value", {})
 
                 if "messages" not in value:
-                    print("Skipping non-message event")
+                    print("⚠ Skipping non-message event")
                     continue
 
                 for message in value["messages"]:
@@ -53,12 +59,12 @@ def webhook():
                     sender = message.get("from")
                     text = message.get("text", {}).get("body")
 
-                    print(f"{sender}: {text}")
+                    print(f"💬 Message from {sender}: {text}")
 
                     process_message(sender, text)
 
     except Exception as e:
-        print("Webhook Error:", e)
+        print("❌ Webhook processing error:", str(e))
 
     return "OK", 200
 
@@ -69,9 +75,6 @@ def webhook():
 def process_message(phone, text):
     time_now = datetime.datetime.now().isoformat()
 
-    # -------------------------
-    # STORE CONVERSATION
-    # -------------------------
     if phone not in CONVERSATIONS:
         CONVERSATIONS[phone] = []
 
@@ -80,25 +83,19 @@ def process_message(phone, text):
         "time": time_now
     })
 
-    print("Stored conversation:", CONVERSATIONS[phone])
+    print(f"🧠 Stored conversation for {phone}: {CONVERSATIONS[phone]}")
 
-    # -------------------------
-    # LEAD TRIGGER LOGIC
-    # -------------------------
     trigger_words = ["price", "cost", "interested", "buy", "service"]
 
-    if any(word in text.lower() for word in trigger_words):
+    if text and any(word in text.lower() for word in trigger_words):
         create_lead(phone, text)
 
 
 # =========================
-# CREATE LEAD (SAFE VERSION)
+# CREATE LEAD (FIXED SAFE VERSION)
 # =========================
 def create_lead(phone, message):
-    print("🚀 Creating lead for:", phone)
-
-    # OPTION 1: send to Odoo endpoint (BEST PRACTICE)
-    # OPTION 2: send email / CRM API / database
+    print(f"🚀 Creating lead for {phone}")
 
     url = "https://erpbox-sols-finnettrust.odoo.com/mail/create"
 
@@ -108,11 +105,25 @@ def create_lead(phone, message):
     }
 
     try:
-        res = requests.post(url, json=payload)
-        print("CRM Response:", res.text)
+        res = requests.post(url, json=payload, timeout=10)
 
-    except Exception as e:
-        print("CRM Error:", e)
+        print("📡 CRM Status Code:", res.status_code)
+
+        # Try JSON first (safe parsing)
+        try:
+            response_data = res.json()
+            print("📦 CRM JSON Response:", response_data)
+
+        except Exception:
+            # Avoid dumping full HTML pages into logs
+            print("⚠ CRM returned non-JSON response (truncated):")
+            print(res.text[:300])
+
+        if res.status_code != 200:
+            print("❌ CRM request failed")
+
+    except requests.exceptions.RequestException as e:
+        print("❌ CRM Connection Error:", str(e))
 
 
 # =========================
