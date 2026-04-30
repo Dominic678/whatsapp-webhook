@@ -25,7 +25,9 @@ def verify():
         return challenge, 200
 
     return "Invalid token", 403
-
+@app.route('/')
+def home():
+    return "Webhook is LIVE", 200
 
 # =========================
 # RECEIVE MESSAGES
