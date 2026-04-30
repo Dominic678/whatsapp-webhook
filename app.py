@@ -7,26 +7,13 @@ app = Flask(__name__)
 VERIFY_TOKEN = "xTE0hXgE"
 
 # =========================
-# SEND TO ODOO MODULE
+# SIMPLE MEMORY STORAGE (replace with DB later)
 # =========================
-def send_to_odoo_module(phone, message, status="received"):
-    url = "https://erpbox-sols-finnettrust.odoo.com/whatsapp/incoming"
-
-    payload = {
-        "phone": phone,
-        "message": message,
-        "status": status
-    }
-
-    try:
-        res = requests.post(url, json=payload)
-        print("Odoo response:", res.text)
-    except Exception as e:
-        print("Odoo error:", e)
+CONVERSATIONS = {}
 
 
 # =========================
-# VERIFY WEBHOOK (GET)
+# VERIFY WEBHOOK
 # =========================
 @app.route('/webhook', methods=['GET'])
 def verify():
@@ -41,7 +28,7 @@ def verify():
 
 
 # =========================
-# RECEIVE EVENTS (POST)
+# RECEIVE MESSAGES
 # =========================
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -53,37 +40,20 @@ def webhook():
             for change in entry.get("changes", []):
                 value = change.get("value", {})
 
-                # =========================
-                # HANDLE USER MESSAGES
-                # =========================
-                if "messages" in value:
-                    for msg in value["messages"]:
-                        if msg.get("type") != "text":
-                            continue
+                if "messages" not in value:
+                    print("Skipping non-message event")
+                    continue
 
-                        phone = msg.get("from")
-                        text = msg.get("text", {}).get("body")
+                for message in value["messages"]:
+                    if message.get("type") != "text":
+                        continue
 
-                        print(f"{phone}: {text}")
+                    sender = message.get("from")
+                    text = message.get("text", {}).get("body")
 
-                        # Send to Odoo
-                        send_to_odoo_module(phone, text, "received")
+                    print(f"{sender}: {text}")
 
-                # =========================
-                # HANDLE STATUS UPDATES
-                # =========================
-                if "statuses" in value:
-                    for s in value["statuses"]:
-                        phone = s.get("recipient_id")
-                        status = s.get("status")
-
-                        print(f"STATUS {phone}: {status}")
-
-                        send_to_odoo_module(
-                            phone,
-                            "STATUS UPDATE",
-                            status
-                        )
+                    process_message(sender, text)
 
     except Exception as e:
         print("Webhook Error:", e)
@@ -92,15 +62,59 @@ def webhook():
 
 
 # =========================
-# ROOT ROUTE (FOR RENDER HEALTH CHECK)
+# CRM LOGIC ENGINE
 # =========================
-@app.route('/')
-def home():
-    return "WhatsApp Webhook Running ✅", 200
+def process_message(phone, text):
+    time_now = datetime.datetime.now().isoformat()
+
+    # -------------------------
+    # STORE CONVERSATION
+    # -------------------------
+    if phone not in CONVERSATIONS:
+        CONVERSATIONS[phone] = []
+
+    CONVERSATIONS[phone].append({
+        "message": text,
+        "time": time_now
+    })
+
+    print("Stored conversation:", CONVERSATIONS[phone])
+
+    # -------------------------
+    # LEAD TRIGGER LOGIC
+    # -------------------------
+    trigger_words = ["price", "cost", "interested", "buy", "service"]
+
+    if any(word in text.lower() for word in trigger_words):
+        create_lead(phone, text)
 
 
 # =========================
-# RUN LOCAL ONLY
+# CREATE LEAD (SAFE VERSION)
+# =========================
+def create_lead(phone, message):
+    print("🚀 Creating lead for:", phone)
+
+    # OPTION 1: send to Odoo endpoint (BEST PRACTICE)
+    # OPTION 2: send email / CRM API / database
+
+    url = "https://erpbox-sols-finnettrust.odoo.com/mail/create"
+
+    payload = {
+        "phone": phone,
+        "message": message
+    }
+
+    try:
+        res = requests.post(url, json=payload)
+        print("CRM Response:", res.text)
+
+    except Exception as e:
+        print("CRM Error:", e)
+
+
+# =========================
+# RUN APP
 # =========================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
