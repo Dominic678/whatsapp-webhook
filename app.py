@@ -3,6 +3,9 @@ import requests
 import datetime
 
 app = Flask(__name__)
+@app.route('/')
+def home():
+    return "Webhook is LIVE", 200
 
 VERIFY_TOKEN = "xTE0hXgE"
 
