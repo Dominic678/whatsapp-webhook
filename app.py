@@ -88,7 +88,13 @@ def process_message(phone, text):
     if any(word in text.lower() for word in trigger_words):
         create_lead(phone, text)
 
-
+if "statuses" in value:
+    for s in value["statuses"]:
+        send_to_odoo_module(
+            s.get("recipient_id"),
+            f"STATUS UPDATE",
+            s.get("status")
+        )
 # =========================
 # CREATE LEAD (SAFE VERSION)
 # =========================
