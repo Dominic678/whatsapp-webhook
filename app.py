@@ -1,10 +1,33 @@
 from flask import Flask, request
 import requests
+import datetime
 
 app = Flask(__name__)
 
 VERIFY_TOKEN = "xTE0hXgE"
 
+# =========================
+# SEND TO ODOO MODULE
+# =========================
+def send_to_odoo_module(phone, message, status="received"):
+    url = "https://erpbox-sols-finnettrust.odoo.com/whatsapp/incoming"
+
+    payload = {
+        "phone": phone,
+        "message": message,
+        "status": status
+    }
+
+    try:
+        res = requests.post(url, json=payload)
+        print("Odoo response:", res.text)
+    except Exception as e:
+        print("Odoo error:", e)
+
+
+# =========================
+# VERIFY WEBHOOK (GET)
+# =========================
 @app.route('/webhook', methods=['GET'])
 def verify():
     mode = request.args.get("hub.mode")
@@ -17,69 +40,67 @@ def verify():
     return "Invalid token", 403
 
 
+# =========================
+# RECEIVE EVENTS (POST)
+# =========================
 @app.route('/webhook', methods=['POST'])
 def webhook():
     data = request.get_json()
     print("Incoming:", data)
 
     try:
-        message = data['entry'][0]['changes'][0]['value']['messages'][0]
-        sender = message['from']
-        text = message['text']['body']
+        for entry in data.get("entry", []):
+            for change in entry.get("changes", []):
+                value = change.get("value", {})
 
-        print(f"{sender}: {text}")
+                # =========================
+                # HANDLE USER MESSAGES
+                # =========================
+                if "messages" in value:
+                    for msg in value["messages"]:
+                        if msg.get("type") != "text":
+                            continue
 
-        send_to_odoo(sender, text)
+                        phone = msg.get("from")
+                        text = msg.get("text", {}).get("body")
+
+                        print(f"{phone}: {text}")
+
+                        # Send to Odoo
+                        send_to_odoo_module(phone, text, "received")
+
+                # =========================
+                # HANDLE STATUS UPDATES
+                # =========================
+                if "statuses" in value:
+                    for s in value["statuses"]:
+                        phone = s.get("recipient_id")
+                        status = s.get("status")
+
+                        print(f"STATUS {phone}: {status}")
+
+                        send_to_odoo_module(
+                            phone,
+                            "STATUS UPDATE",
+                            status
+                        )
 
     except Exception as e:
-        print("Error:", e)
+        print("Webhook Error:", e)
 
     return "OK", 200
 
 
-def send_to_odoo(phone, message):
-    url = "https://erpbox-sols-finnettrust.odoo.com/jsonrpc"
-
-    db = "erpbox-sols-finnettrust"
-    username = "YOUR_ODOO_EMAIL"
-    password = "YOUR_ODOO_PASSWORD"  # or API key
-
-    headers = {'Content-Type': 'application/json'}
-
-    auth = {
-        "jsonrpc": "2.0",
-        "method": "call",
-        "params": {
-            "service": "common",
-            "method": "login",
-            "args": [db, username, password]
-        },
-        "id": 1
-    }
-
-    res = requests.post(url, json=auth, headers=headers)
-    uid = res.json()['result']
-
-    payload = {
-        "jsonrpc": "2.0",
-        "method": "call",
-        "params": {
-            "service": "object",
-            "method": "execute_kw",
-            "args": [
-                db, uid, password,
-                "crm.lead", "create",
-                [{
-                    "name": f"WhatsApp: {phone}",
-                    "description": message
-                }]
-            ]
-        },
-        "id": 2
-    }
-
-    requests.post(url, json=payload, headers=headers)
+# =========================
+# ROOT ROUTE (FOR RENDER HEALTH CHECK)
+# =========================
+@app.route('/')
+def home():
+    return "WhatsApp Webhook Running ✅", 200
 
 
+# =========================
+# RUN LOCAL ONLY
+# =========================
 if __name__ == "__main__":
-    app.run()rewrite all for me correctly 
+    app.run(host="0.0.0.0", port=5000)
