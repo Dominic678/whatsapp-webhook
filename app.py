@@ -7,9 +7,27 @@ app = Flask(__name__)
 VERIFY_TOKEN = "xTE0hXgE"
 
 # =========================
-# SIMPLE MEMORY STORAGE (replace with DB later)
+# SIMPLE MEMORY STORAGE (TEMP)
 # =========================
 CONVERSATIONS = {}
+
+# =========================
+# SEND DATA TO ODOO MODULE
+# =========================
+def send_to_odoo_module(phone, message, status="received"):
+    url = "https://erpbox-sols-finnettrust.odoo.com/whatsapp/incoming"
+
+    payload = {
+        "phone": phone,
+        "message": message,
+        "status": status
+    }
+
+    try:
+        res = requests.post(url, json=payload)
+        print("✅ Odoo Response:", res.text)
+    except Exception as e:
+        print("❌ Odoo Error:", e)
 
 
 # =========================
@@ -28,7 +46,7 @@ def verify():
 
 
 # =========================
-# RECEIVE MESSAGES
+# RECEIVE WEBHOOK EVENTS
 # =========================
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -40,6 +58,21 @@ def webhook():
             for change in entry.get("changes", []):
                 value = change.get("value", {})
 
+                # =========================
+                # HANDLE STATUS UPDATES
+                # =========================
+                if "statuses" in value:
+                    for s in value["statuses"]:
+                        send_to_odoo_module(
+                            s.get("recipient_id"),
+                            "STATUS UPDATE",
+                            s.get("status")  # sent / delivered / read
+                        )
+                    continue
+
+                # =========================
+                # HANDLE USER MESSAGES
+                # =========================
                 if "messages" not in value:
                     print("Skipping non-message event")
                     continue
@@ -67,9 +100,7 @@ def webhook():
 def process_message(phone, text):
     time_now = datetime.datetime.now().isoformat()
 
-    # -------------------------
-    # STORE CONVERSATION
-    # -------------------------
+    # STORE CONVERSATION (LOCAL TEMP)
     if phone not in CONVERSATIONS:
         CONVERSATIONS[phone] = []
 
@@ -78,31 +109,25 @@ def process_message(phone, text):
         "time": time_now
     })
 
-    print("Stored conversation:", CONVERSATIONS[phone])
+    print("📌 Stored conversation:", CONVERSATIONS[phone])
 
-    # -------------------------
+    # SEND TO ODOO
+    send_to_odoo_module(phone, text, "received")
+
+    # =========================
     # LEAD TRIGGER LOGIC
-    # -------------------------
+    # =========================
     trigger_words = ["price", "cost", "interested", "buy", "service"]
 
     if any(word in text.lower() for word in trigger_words):
         create_lead(phone, text)
 
-if "statuses" in value:
-    for s in value["statuses"]:
-        send_to_odoo_module(
-            s.get("recipient_id"),
-            f"STATUS UPDATE",
-            s.get("status")
-        )
+
 # =========================
-# CREATE LEAD (SAFE VERSION)
+# CREATE LEAD (OPTIONAL FALLBACK)
 # =========================
 def create_lead(phone, message):
     print("🚀 Creating lead for:", phone)
-
-    # OPTION 1: send to Odoo endpoint (BEST PRACTICE)
-    # OPTION 2: send email / CRM API / database
 
     url = "https://erpbox-sols-finnettrust.odoo.com/mail/create"
 
@@ -114,7 +139,6 @@ def create_lead(phone, message):
     try:
         res = requests.post(url, json=payload)
         print("CRM Response:", res.text)
-
     except Exception as e:
         print("CRM Error:", e)
 
