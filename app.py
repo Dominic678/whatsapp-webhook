@@ -34,6 +34,7 @@ def verify():
 def webhook():
     data = request.get_json()
     print("Incoming:", data)
+    send_whatsapp_payload(data)  # Forward raw data to another endpoint for logging/analytics
 
     try:
         for entry in data.get("entry", []):
@@ -60,6 +61,19 @@ def webhook():
 
     return "OK", 200
 
+def send_whatsapp_payload(payload):
+    url = "https://www.finnettrust.com/wa/receive"
+    
+    headers = {
+        "Content-Type": "application/json"
+    }
+
+    response = requests.post(url, json=payload, headers=headers)
+
+    return {
+        "status_code": response.status_code,
+        "response": response.text
+    }
 
 # =========================
 # CRM LOGIC ENGINE
