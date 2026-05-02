@@ -35,7 +35,17 @@ def verify():
         return challenge, 200
 
     return "Invalid token", 403
+@app.route('/send', methods=['POST'])
+def send():
+    data = request.get_json()
 
+    phone = data.get("phone")
+    message = data.get("message")
+
+    # call WhatsApp API here
+    logger.info(f"Sending to {phone}: {message}")
+
+    return {"status": "sent"}, 200
 
 # =========================
 # RECEIVE MESSAGES (POST)
