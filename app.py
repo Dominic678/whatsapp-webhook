@@ -112,7 +112,7 @@ def process_message(phone, text):
 def create_lead(phone, message):
     logger.info(f"🚀 Creating lead for {phone}")
 
-    url = "https://erpbox-sols-finnettrust.odoo.com/mail/create"
+    url = "https://erpbox-sols-finnettrust.odoo.com/whatsapp/webhook"
 
     payload = {
         "phone": phone,
