@@ -1,4 +1,4 @@
-from flask import Flask, request
+from flask import Flask, request, jsonify
 import requests
 import datetime
 import logging
@@ -10,26 +10,37 @@ app = Flask(__name__)
 # =========================
 VERIFY_TOKEN = "xTE0hXgE"
 
+# ODOO STAGING ENDPOINT (IMPORTANT)
+ODOO_URL = "https://erpbox-sols-finnettrust-staging-30004233.dev.odoo.com/whatsapp/incoming"
+
 # simple in-memory storage (replace with DB later)
 CONVERSATIONS = {}
 
 # =========================
-# LOGGING (IMPORTANT FOR RENDER)
+# LOGGING
 # =========================
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
 # =========================
-# VERIFY WEBHOOK (GET)
+# HEALTH CHECK
+# =========================
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({"status": "ok"}), 200
+
+
+# =========================
+# WEBHOOK VERIFICATION (META)
 # =========================
 @app.route('/webhook', methods=['GET'])
-def verify():
+def verify_webhook():
     mode = request.args.get("hub.mode")
     token = request.args.get("hub.verify_token")
     challenge = request.args.get("hub.challenge")
 
-    logger.info(f"Verify request: mode={mode}, token={token}")
+    logger.info(f"VERIFY REQUEST: mode={mode}, token={token}")
 
     if mode == "subscribe" and token == VERIFY_TOKEN:
         return challenge, 200
@@ -38,32 +49,16 @@ def verify():
 
 
 # =========================
-# SEND TEST ENDPOINT
-# =========================
-@app.route('/send', methods=['POST'])
-def send():
-    data = request.get_json()
-
-    phone = data.get("phone")
-    message = data.get("message")
-
-    logger.info(f"Sending to {phone}: {message}")
-
-    return {"status": "sent"}, 200
-
-
-# =========================
-# RECEIVE MESSAGES (POST)
+# RECEIVE WHATSAPP MESSAGES
 # =========================
 @app.route('/webhook', methods=['POST'])
-def webhook():
+def receive_message():
     data = request.get_json(silent=True)
 
-    logger.info("🔥 WEBHOOK HIT")
-    logger.info(f"Incoming payload: {data}")
+    logger.info("🔥 WEBHOOK RECEIVED")
+    logger.info(data)
 
     if not data:
-        logger.warning("Empty payload received")
         return "No data", 400
 
     try:
@@ -71,103 +66,88 @@ def webhook():
             for change in entry.get("changes", []):
                 value = change.get("value", {})
 
-                if "messages" not in value:
-                    logger.info("Skipping non-message event")
-                    continue
-
                 messages = value.get("messages", [])
-                contacts = value.get("contacts", [])
 
-                contact_name = (
-                    contacts[0].get("profile", {}).get("name", "")
-                    if contacts else ""
-                )
-
-                for message in messages:
-                    msg_type = message.get("type")
+                for msg in messages:
+                    msg_type = msg.get("type")
 
                     if msg_type != "text":
-                        logger.info(f"Skipping non-text message: {msg_type}")
                         continue
 
-                    sender = message.get("from")
-                    text = message.get("text", {}).get("body")
+                    phone = msg.get("from")
+                    text = msg.get("text", {}).get("body")
 
-                    logger.info(f"Received from {sender}: {text}")
+                    logger.info(f"FROM {phone}: {text}")
 
-                    if sender and text:
-                        process_message(sender, text, contact_name)
+                    if phone and text:
+                        store_message(phone, text)
+                        send_to_odoo(phone, text)
 
     except Exception as e:
-        logger.exception(f"Webhook processing error: {e}")
+        logger.exception(f"Error processing webhook: {e}")
 
     return "OK", 200
 
 
 # =========================
-# MESSAGE PROCESSOR
+# STORE MESSAGE (LOCAL MEMORY)
 # =========================
-def process_message(phone, text, contact_name=""):
-    time_now = datetime.datetime.utcnow().isoformat()
+def store_message(phone, text):
+    now = datetime.datetime.utcnow().isoformat()
 
     if phone not in CONVERSATIONS:
         CONVERSATIONS[phone] = []
 
     CONVERSATIONS[phone].append({
         "message": text,
-        "time": time_now
+        "time": now
     })
 
-    logger.info(
-        f"Stored conversation for {contact_name or phone} ({phone}): "
-        f"{CONVERSATIONS[phone]}"
-    )
-
-    # 🔥 SEND EVERY MESSAGE TO ODOO
-    forward_to_odoo(phone, text, contact_name)
-
-    trigger_words = ["price", "cost", "interested", "buy", "service"]
-
-    if any(word in text.lower() for word in trigger_words):
-        logger.info(f"Trigger word detected for {phone}")
+    logger.info(f"Stored: {phone} -> {text}")
 
 
 # =========================
-# FORWARD TO ODOO (FIXED)
+# SEND TO ODOO
 # =========================
-def forward_to_odoo(phone, message, contact_name=""):
-    logger.info(f"📤 Forwarding to Odoo: {phone}")
-
-    # ✅ STAGING URL (IMPORTANT FIX)
-    url = "https://erpbox-sols-finnettrust-staging-30004233.dev.odoo.com/whatsapp/webhook"
-
+def send_to_odoo(phone, message):
     payload = {
         "phone": phone,
-        "message": message,
-        "contact_name": contact_name,
+        "message": message
     }
 
     try:
-        res = requests.post(url, json=payload, timeout=10)
+        res = requests.post(ODOO_URL, json=payload, timeout=10)
 
-        # 🔥 IMPORTANT DEBUG LOGS
-        logger.info(f"Odoo Status Code: {res.status_code}")
-        logger.info(f"Odoo Response: {res.text}")
+        logger.info(f"ODOO RESPONSE: {res.status_code} {res.text}")
 
     except Exception as e:
-        logger.exception(f"Odoo forward error: {e}")
+        logger.exception(f"Odoo send failed: {e}")
 
 
 # =========================
-# HEALTH CHECK
+# SEND MESSAGE BACK (OPTIONAL)
 # =========================
-@app.route('/health', methods=['GET'])
-def health():
-    return {"status": "ok"}, 200
+@app.route('/send', methods=['POST'])
+def send_message():
+    data = request.get_json()
+
+    phone = data.get("phone")
+    message = data.get("message")
+
+    logger.info(f"SEND REQUEST -> {phone}: {message}")
+
+    # HERE you would call WhatsApp Cloud API
+    # (placeholder for now)
+
+    return jsonify({
+        "status": "sent",
+        "phone": phone,
+        "message": message
+    }), 200
 
 
 # =========================
-# RUN (LOCAL ONLY)
+# RUN SERVER
 # =========================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
