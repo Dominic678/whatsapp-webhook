@@ -126,7 +126,7 @@ def process_message(phone, text, contact_name=""):
 def forward_to_odoo(phone, message, contact_name=""):
     logger.info(f"📤 Forwarding message from {contact_name or phone} ({phone}) to Odoo")
 
-    url = "https://erpbox-sols-finnettrust.odoo.com/whatsapp/flask-webhook"
+ url = "https://erpbox-sols-finnettrust.odoo.com/whatsapp/webhook"
 
     payload = {
         "phone": phone,
