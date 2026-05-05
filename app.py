@@ -8,7 +8,7 @@ app = Flask(__name__)
 # =========================
 # CONFIG
 # =========================
-VERIFY_TOKEN = "xTE0hXgE"
+VERIFY_TOKEN = "HCmUrDGY"
 
 # ODOO STAGING ENDPOINT (IMPORTANT)
 ODOO_URL = "https://erpbox-sols-finnettrust-staging-30004233.dev.odoo.com/whatsapp/incoming"
