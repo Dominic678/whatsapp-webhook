@@ -35,6 +35,11 @@ def verify():
         return challenge, 200
 
     return "Invalid token", 403
+
+
+# =========================
+# SEND TEST ENDPOINT
+# =========================
 @app.route('/send', methods=['POST'])
 def send():
     data = request.get_json()
@@ -42,10 +47,10 @@ def send():
     phone = data.get("phone")
     message = data.get("message")
 
-    # call WhatsApp API here
     logger.info(f"Sending to {phone}: {message}")
 
     return {"status": "sent"}, 200
+
 
 # =========================
 # RECEIVE MESSAGES (POST)
@@ -66,14 +71,17 @@ def webhook():
             for change in entry.get("changes", []):
                 value = change.get("value", {})
 
-                # ignore non-message events (status updates etc.)
                 if "messages" not in value:
                     logger.info("Skipping non-message event")
                     continue
 
                 messages = value.get("messages", [])
                 contacts = value.get("contacts", [])
-                contact_name = contacts[0].get("profile", {}).get("name", "") if contacts else ""
+
+                contact_name = (
+                    contacts[0].get("profile", {}).get("name", "")
+                    if contacts else ""
+                )
 
                 for message in messages:
                     msg_type = message.get("type")
@@ -97,7 +105,7 @@ def webhook():
 
 
 # =========================
-# CRM LOGIC ENGINE
+# MESSAGE PROCESSOR
 # =========================
 def process_message(phone, text, contact_name=""):
     time_now = datetime.datetime.utcnow().isoformat()
@@ -110,23 +118,28 @@ def process_message(phone, text, contact_name=""):
         "time": time_now
     })
 
-    logger.info(f"Stored conversation for {contact_name or phone} ({phone}): {CONVERSATIONS[phone]}")
+    logger.info(
+        f"Stored conversation for {contact_name or phone} ({phone}): "
+        f"{CONVERSATIONS[phone]}"
+    )
 
+    # 🔥 SEND EVERY MESSAGE TO ODOO
     forward_to_odoo(phone, text, contact_name)
 
     trigger_words = ["price", "cost", "interested", "buy", "service"]
 
     if any(word in text.lower() for word in trigger_words):
-        logger.info(f"Trigger word detected for {phone} – CRM lead creation can be added here")
+        logger.info(f"Trigger word detected for {phone}")
 
 
 # =========================
-# FORWARD TO ODOO
+# FORWARD TO ODOO (FIXED)
 # =========================
 def forward_to_odoo(phone, message, contact_name=""):
-    logger.info(f"📤 Forwarding message from {contact_name or phone} ({phone}) to Odoo")
+    logger.info(f"📤 Forwarding to Odoo: {phone}")
 
- url = "https://erpbox-sols-finnettrust.odoo.com/whatsapp/webhook"
+    # ✅ STAGING URL (IMPORTANT FIX)
+    url = "https://erpbox-sols-finnettrust-staging-30004233.dev.odoo.com/whatsapp/webhook"
 
     payload = {
         "phone": phone,
@@ -136,18 +149,20 @@ def forward_to_odoo(phone, message, contact_name=""):
 
     try:
         res = requests.post(url, json=payload, timeout=10)
-        logger.info(f"Odoo Response: {res.status_code} - {res.text}")
+
+        # 🔥 IMPORTANT DEBUG LOGS
+        logger.info(f"Odoo Status Code: {res.status_code}")
+        logger.info(f"Odoo Response: {res.text}")
 
     except Exception as e:
         logger.exception(f"Odoo forward error: {e}")
 
 
 # =========================
-# HEALTH CHECK (IMPORTANT FOR RENDER DEBUGGING)
+# HEALTH CHECK
 # =========================
 @app.route('/health', methods=['GET'])
 def health():
-    logger.info("Health check hit")
     return {"status": "ok"}, 200
 
 
