@@ -72,6 +72,8 @@ def webhook():
                     continue
 
                 messages = value.get("messages", [])
+                contacts = value.get("contacts", [])
+                contact_name = contacts[0].get("profile", {}).get("name", "") if contacts else ""
 
                 for message in messages:
                     msg_type = message.get("type")
@@ -86,7 +88,7 @@ def webhook():
                     logger.info(f"Received from {sender}: {text}")
 
                     if sender and text:
-                        process_message(sender, text)
+                        process_message(sender, text, contact_name)
 
     except Exception as e:
         logger.exception(f"Webhook processing error: {e}")
@@ -97,7 +99,7 @@ def webhook():
 # =========================
 # CRM LOGIC ENGINE
 # =========================
-def process_message(phone, text):
+def process_message(phone, text, contact_name=""):
     time_now = datetime.datetime.utcnow().isoformat()
 
     if phone not in CONVERSATIONS:
@@ -108,33 +110,36 @@ def process_message(phone, text):
         "time": time_now
     })
 
-    logger.info(f"Stored conversation for {phone}: {CONVERSATIONS[phone]}")
+    logger.info(f"Stored conversation for {contact_name or phone} ({phone}): {CONVERSATIONS[phone]}")
+
+    forward_to_odoo(phone, text, contact_name)
 
     trigger_words = ["price", "cost", "interested", "buy", "service"]
 
     if any(word in text.lower() for word in trigger_words):
-        create_lead(phone, text)
+        logger.info(f"Trigger word detected for {phone} – CRM lead creation can be added here")
 
 
 # =========================
-# CREATE LEAD (ODOO / CRM)
+# FORWARD TO ODOO
 # =========================
-def create_lead(phone, message):
-    logger.info(f"🚀 Creating lead for {phone}")
+def forward_to_odoo(phone, message, contact_name=""):
+    logger.info(f"📤 Forwarding message from {contact_name or phone} ({phone}) to Odoo")
 
-    url = "https://erpbox-sols-finnettrust.odoo.com/whatsapp/webhook"
+    url = "https://erpbox-sols-finnettrust.odoo.com/whatsapp/flask-webhook"
 
     payload = {
         "phone": phone,
-        "message": message
+        "message": message,
+        "contact_name": contact_name,
     }
 
     try:
         res = requests.post(url, json=payload, timeout=10)
-        logger.info(f"CRM Response: {res.status_code} - {res.text}")
+        logger.info(f"Odoo Response: {res.status_code} - {res.text}")
 
     except Exception as e:
-        logger.exception(f"CRM Error: {e}")
+        logger.exception(f"Odoo forward error: {e}")
 
 
 # =========================
